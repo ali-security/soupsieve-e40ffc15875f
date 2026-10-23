@@ -590,6 +590,77 @@ class TestInvalid(util.TestCase):
         with self.assertRaises(TypeError):
             sv.filter('div', "not a tag", flags=flags)
 
+    def test_excessive_selectors(self):
+        """Test excessive selectors."""
+
+        # Build a 500 KB selector string: "a,a,a,...,a" (250,000 items)
+        count = 10000
+        selector = ",".join("a" for _ in range(count))
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile(selector)
+
+    def test_excessive_custom_selectors(self):
+        """Test excessive custom selectors."""
+
+        # Build a 500 KB selector string: "a,a,a,...,a" (250,000 items)
+        count = 10000
+        selector = ",".join("a" for _ in range(count))
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile('div:--custom', custom={':--custom': selector})
+
+    def test_excessive_custom_and_normal_selectors(self):
+        """Test excessive custom and normal selectors."""
+
+        count = 5000
+        selector = ",".join("a" for _ in range(count))
+
+        # Compile the selector
+        with self.assertRaises(ValueError):
+            sv.compile(':is({}):--custom'.format(selector), custom={':--custom': selector})
+
+    def test_selector_limit_boundary(self):
+        """Test that selectors right at the limit compile, but one more is rejected."""
+
+        limit = sv.cp.SELECTOR_LIMIT
+
+        selector = ",".join("a" for _ in range(limit))
+        self.assertEqual(sv.compile(selector).selectors.count, limit)
+
+        selector = ",".join("a" for _ in range(limit + 1))
+        with self.assertRaises(ValueError):
+            sv.compile(selector)
+
+    def test_excessive_reused_custom_selectors(self):
+        """Test that reusing cached custom selectors counts their full size every time they are used."""
+
+        # Each level references the previous level twice, so the effective size doubles per level
+        # even though the compiled custom selector objects are shared.
+        custom = {':--level0': 'p, p'}
+        for level in range(1, 13):
+            custom[':--level{}'.format(level)] = ':--level{0}, :--level{0}'.format(level - 1)
+
+        # Just under the limit is fine.
+        sv.compile(':--level11', custom=custom)
+
+        with self.assertRaises(ValueError):
+            sv.compile(':--level12', custom=custom)
+
+    def test_excessive_builtin_pseudo_class_selectors(self):
+        """Test that built-in pseudo-classes count the selectors they expand to."""
+
+        count = 1000
+
+        # A plain list of this size is well within the limit.
+        sv.compile(':is({})'.format(", ".join("a" for _ in range(count))))
+
+        # But `:checked` expands to a precompiled selector list, which must be counted.
+        with self.assertRaises(ValueError):
+            sv.compile(':is({})'.format(", ".join(":checked" for _ in range(count))))
+
 
 class TestSyntaxErrorReporting(util.TestCase):
     """Test reporting of syntax errors."""
